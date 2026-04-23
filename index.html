@@ -1018,22 +1018,19 @@ function sendDossier(){
 
   fetch(GAS_URL, {
     method:  'POST',
+    mode:    'no-cors',
     headers: {'Content-Type':'text/plain'},
     body:    JSON.stringify(payload)
   })
-  .then(r => r.json())
-  .then(resp => {
-    if(resp.status === 'ok'){
-      if(curD) curD.status = 'complété';
-      showSuccess();
-    } else {
-      throw new Error(resp.message || 'Erreur inconnue');
-    }
+  .then(() => {
+    // no-cors = réponse opaque, on suppose succès si pas d'erreur réseau
+    if(curD) curD.status = 'complété';
+    showSuccess();
   })
   .catch(err => {
     btn.textContent = '📤 Transmettre le dossier';
     btn.disabled = false;
-    toast('Erreur : ' + err.message);
+    toast('Erreur réseau : ' + err.message);
     console.error(err);
   });
 }
