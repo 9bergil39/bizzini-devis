@@ -996,22 +996,33 @@ function sendDossier(){
   toast('Envoi en cours…');
 
   emailjs.init({publicKey: EMAILJS_PUBLIC_KEY});
-  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-    to_email:   emailDest,
-    subject:    `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
-    message:    buildEmailBody(),
-  })
-  .then(() => {
+
+  const msgBody = buildEmailBody().substring(0, 4000);
+  console.log('EmailJS send start, body length:', msgBody.length);
+
+  const sendPromise = emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+    to_email: emailDest,
+    subject:  `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
+    message:  msgBody,
+  });
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject({status: 'timeout', text: 'Pas de réponse après 10 secondes'}), 10000)
+  );
+
+  Promise.race([sendPromise, timeoutPromise])
+  .then((resp) => {
+    console.log('EmailJS success:', resp);
     if(curD) curD.status = 'complété';
     showSuccess();
   })
   .catch(err => {
+    console.error('EmailJS error:', err);
     btn.textContent = '📤 Transmettre le dossier';
     btn.disabled = false;
-    const detail = err.status ? `Erreur ${err.status} : ${err.text}` : (err.message || JSON.stringify(err));
+    const detail = err.status ? `[${err.status}] ${err.text}` : (err.message || JSON.stringify(err));
     toast('Erreur : ' + detail);
-    alert('Détail erreur EmailJS :\n' + JSON.stringify(err, null, 2));
-    console.error('EmailJS error:', err);
+    alert('Erreur EmailJS :\n' + detail);
   });
 }
 
