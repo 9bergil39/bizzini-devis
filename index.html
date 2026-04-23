@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Bizzini — Devis Terrain</title>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -981,10 +980,8 @@ function toggleAutres(cb){
   document.getElementById('autresReveal').style.display=cb.checked?'block':'none';
 }
 
-// ── ENVOI EMAILJS ─────────────────────────────────────────────
-const EMAILJS_PUBLIC_KEY  = 'MW9TSjc0OzFHYbSz3';
-const EMAILJS_SERVICE_ID  = 'service_jtzoi2w';
-const EMAILJS_TEMPLATE_ID = 'template_ntbwkyb';
+// ── ENVOI VIA GOOGLE APPS SCRIPT + DRIVE ─────────────────────
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzh0U4pK5-afxzctglAoxdZTX_tssbcB4ic1agIhrgMai97L8Zy9vnaA5eXU3xrkaDT/exec';
 
 function sendDossier(){
   const emailDest = document.getElementById('emailDest').value.trim();
@@ -993,36 +990,51 @@ function sendDossier(){
   const btn = document.getElementById('btnNext');
   btn.textContent = '⏳ Envoi en cours…';
   btn.disabled = true;
-  toast('Envoi en cours…');
+  toast('Upload des photos et envoi…');
 
-  emailjs.init({publicKey: EMAILJS_PUBLIC_KEY});
-
-  const msgBody = buildEmailBody().substring(0, 4000);
-  console.log('EmailJS send start, body length:', msgBody.length);
-
-  const sendPromise = emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-    to_email: emailDest,
-    subject:  `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
-    message:  msgBody,
+  // Prépare les photos en base64
+  const attachments = [];
+  const allPhotos = [
+    ...photos.docs.map(p=>({...p,cat:'Dossier'})),
+    ...photos.inst.map(p=>({...p,cat:'Installation'})),
+    ...photos.app.map(p=>({...p,cat:'Appareil'})),
+  ];
+  allPhotos.forEach((p,i)=>{
+    const parts = p.data.split(',');
+    const mime  = parts[0].match(/:(.*?);/)[1];
+    const b64   = parts[1];
+    const ext   = mime.split('/')[1]||'jpg';
+    attachments.push({name:`${p.cat}_${i+1}.${ext}`,type:mime,data:b64});
   });
 
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject({status: 'timeout', text: 'Pas de réponse après 10 secondes'}), 10000)
-  );
+  const payload = {
+    to:          emailDest,
+    subject:     `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
+    body:        buildEmailBody(),
+    ref:         curD.ref,
+    client:      `${curD.prenom} ${curD.nom}`,
+    attachments: attachments
+  };
 
-  Promise.race([sendPromise, timeoutPromise])
-  .then((resp) => {
-    console.log('EmailJS success:', resp);
-    if(curD) curD.status = 'complété';
-    showSuccess();
+  fetch(GAS_URL, {
+    method:  'POST',
+    headers: {'Content-Type':'text/plain'},
+    body:    JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(resp => {
+    if(resp.status === 'ok'){
+      if(curD) curD.status = 'complété';
+      showSuccess();
+    } else {
+      throw new Error(resp.message || 'Erreur inconnue');
+    }
   })
   .catch(err => {
-    console.error('EmailJS error:', err);
     btn.textContent = '📤 Transmettre le dossier';
     btn.disabled = false;
-    const detail = err.status ? `[${err.status}] ${err.text}` : (err.message || JSON.stringify(err));
-    toast('Erreur : ' + detail);
-    alert('Erreur EmailJS :\n' + detail);
+    toast('Erreur : ' + err.message);
+    console.error(err);
   });
 }
 
