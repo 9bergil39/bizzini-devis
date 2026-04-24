@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Bizzini — Devis Terrain</title>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -1051,28 +1050,32 @@ function sendDossier(){
   btn.disabled = true;
   toast('Envoi en cours…');
 
-  emailjs.init({publicKey: EMAILJS_PUBLIC_KEY});
-
-  const sendPromise = emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-    to_email: emailDest,
-    subject:  `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
-    message:  buildEmailBody(),
-  });
-
-  const timeoutPromise = new Promise((_,reject) =>
-    setTimeout(()=>reject({status:'timeout',text:'Pas de réponse après 15 secondes'}),15000)
-  );
-
-  Promise.race([sendPromise, timeoutPromise])
-  .then(()=>{
-    if(curD) curD.status='complété';
-    showSuccess();
+  fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      service_id:  EMAILJS_SERVICE_ID,
+      template_id: EMAILJS_TEMPLATE_ID,
+      user_id:     EMAILJS_PUBLIC_KEY,
+      template_params: {
+        to_email: emailDest,
+        subject:  `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
+        message:  buildEmailBody(),
+      }
+    })
+  })
+  .then(resp => {
+    if(resp.ok){
+      if(curD) curD.status='complété';
+      showSuccess();
+    } else {
+      return resp.text().then(t => { throw new Error(t); });
+    }
   })
   .catch(err=>{
     btn.textContent = '📤 Transmettre le dossier';
     btn.disabled = false;
-    const detail = err.status?`[${err.status}] ${err.text}`:(err.message||JSON.stringify(err));
-    toast('Erreur : '+detail);
+    toast('Erreur : '+err.message);
     console.error('EmailJS error:',err);
   });
 }
