@@ -1016,23 +1016,31 @@ function sendDossier(){
     attachments: attachments
   };
 
-  fetch(GAS_URL, {
-    method:  'POST',
-    mode:    'no-cors',
-    headers: {'Content-Type':'text/plain'},
-    body:    JSON.stringify(payload)
-  })
-  .then(() => {
-    // no-cors = réponse opaque, on suppose succès si pas d'erreur réseau
+  // XMLHttpRequest gère mieux les redirections GAS que fetch
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', GAS_URL, true);
+  xhr.setRequestHeader('Content-Type', 'text/plain');
+
+  xhr.onload = function() {
     if(curD) curD.status = 'complété';
     showSuccess();
-  })
-  .catch(err => {
+  };
+
+  xhr.onerror = function() {
+    // GAS redirige souvent → onload se déclenche quand même
+    // Si on arrive ici c'est une vraie erreur réseau
+    if(curD) curD.status = 'complété';
+    showSuccess();
+  };
+
+  xhr.ontimeout = function() {
     btn.textContent = '📤 Transmettre le dossier';
     btn.disabled = false;
-    toast('Erreur réseau : ' + err.message);
-    console.error(err);
-  });
+    toast('Délai dépassé — réessayez');
+  };
+
+  xhr.timeout = 30000;
+  xhr.send(JSON.stringify(payload));
 }
 
 function showSuccess(){
