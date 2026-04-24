@@ -990,11 +990,8 @@ function toggleAutres(cb){
   document.getElementById('autresReveal').style.display=cb.checked?'block':'none';
 }
 
-// ── ENVOI EMAILJS + LIEN DRIVE ────────────────────────────────
-const EMAILJS_PUBLIC_KEY  = 'MW9TSjc0OzFHYbSz3';
-const EMAILJS_SERVICE_ID  = 'service_jtzoi2w';
-const EMAILJS_TEMPLATE_ID = 'template_ntbwkyb';
-const DRIVE_FOLDER_URL    = 'https://drive.google.com/drive/folders/1fl6wrN4wNO2zCMtd1jIckExh9gUJltD_';
+// ── ENVOI VIA NETLIFY FUNCTION ────────────────────────────────
+const NETLIFY_URL = 'https://shimmering-kataifi-2aecd0.netlify.app/.netlify/functions/send';
 
 function buildEmailBody(){
   const d=curD;
@@ -1045,10 +1042,7 @@ ${document.getElementById('tRem').value?'Remarques : '+document.getElementById('
 Signataire : ${document.getElementById('sigNom').value||'—'} | Date : ${document.getElementById('sigDate').value||'—'}
 Clé remise à : ${document.getElementById('cleRemise').value||'—'}
 
-── PHOTOS (${totPh} prise${totPh>1?'s':''}) ──────────────────
-${totPh>0?'Le technicien a pris '+totPh+' photo(s) — dossier: '+photos.docs.length+' / installation: '+photos.inst.length+' / appareil: '+photos.app.length:'Aucune photo prise'}
-A déposer dans Google Drive (dossier Bizzini Devis) :
-${DRIVE_FOLDER_URL}`.trim();
+Photos : ${totPh} prise(s) — voir dossier Drive ci-dessous`.trim();
 }
 
 function sendDossier(){
@@ -1056,37 +1050,53 @@ function sendDossier(){
   if(!emailDest){toast('Adresse email manquante');return}
 
   const btn = document.getElementById('btnNext');
-  btn.textContent = '⏳ Envoi en cours…';
+  btn.textContent = '⏳ Upload photos + envoi…';
   btn.disabled = true;
-  toast('Envoi en cours…');
+  toast('Upload des photos en cours…');
 
-  fetch('https://api.emailjs.com/api/v1.0/email/send', {
+  // Prépare les photos en base64
+  const attachments = [];
+  const allPhotos = [
+    ...photos.docs.map(p=>({...p,cat:'Dossier'})),
+    ...photos.inst.map(p=>({...p,cat:'Installation'})),
+    ...photos.app.map(p=>({...p,cat:'Appareil'})),
+  ];
+  allPhotos.forEach((p,i)=>{
+    const parts = p.data.split(',');
+    const mime  = parts[0].match(/:(.*?);/)[1];
+    const b64   = parts[1];
+    const ext   = mime.split('/')[1]||'jpg';
+    attachments.push({name:`${p.cat}_${i+1}.${ext}`,type:mime,data:b64});
+  });
+
+  const payload = {
+    to:          emailDest,
+    subject:     `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
+    body:        buildEmailBody(),
+    ref:         curD.ref,
+    client:      `${curD.prenom} ${curD.nom}`,
+    attachments: attachments
+  };
+
+  fetch(NETLIFY_URL, {
     method:  'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      service_id:  EMAILJS_SERVICE_ID,
-      template_id: EMAILJS_TEMPLATE_ID,
-      user_id:     EMAILJS_PUBLIC_KEY,
-      template_params: {
-        to_email: emailDest,
-        subject:  `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
-        message:  buildEmailBody(),
-      }
-    })
+    body:    JSON.stringify(payload)
   })
+  .then(r => r.json())
   .then(resp => {
-    if(resp.ok){
-      if(curD) curD.status='complété';
+    if(resp.status === 'ok'){
+      if(curD) curD.status = 'complété';
       showSuccess();
     } else {
-      return resp.text().then(t => { throw new Error(t); });
+      throw new Error(resp.message || 'Erreur inconnue');
     }
   })
-  .catch(err=>{
+  .catch(err => {
     btn.textContent = '📤 Transmettre le dossier';
     btn.disabled = false;
-    toast('Erreur : '+err.message);
-    console.error('EmailJS error:',err);
+    toast('Erreur : ' + err.message);
+    console.error(err);
   });
 }
 
