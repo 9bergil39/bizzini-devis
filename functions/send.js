@@ -1,4 +1,5 @@
 const { google } = require('googleapis');
+const nodemailer = require('nodemailer');
 
 exports.handler = async (event) => {
   const headers = {
@@ -15,14 +16,11 @@ exports.handler = async (event) => {
     const data = JSON.parse(event.body);
     const { to, subject, body, ref, client, attachments = [] } = data;
 
+    // Auth Google pour Drive uniquement
     const auth = new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_EMAIL,
       key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      scopes: [
-        'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/gmail.send'
-      ],
-      subject: '9bergil@gmail.com'
+      scopes: ['https://www.googleapis.com/auth/drive']
     });
 
     const drive = google.drive({ version: 'v3', auth });
@@ -57,33 +55,25 @@ exports.handler = async (event) => {
       requestBody: { role: 'reader', type: 'anyone' }
     });
 
-    // Envoyer email via Gmail API
-    const gmail = google.gmail({ version: 'v1', auth });
+    // Envoyer email via SMTP Gmail
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: '9bergil@gmail.com',
+        pass: process.env.GMAIL_PASSWORD
+      }
+    });
+
     const emailBody = body
       + '\n\n── PHOTOS ─────────────────────────\n'
       + attachments.length + ' photo(s) sur Google Drive :\n'
       + folderUrl;
 
-    const message = [
-      `To: ${to}`,
-      `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
-      `From: Bizzini Terrain <9bergil@gmail.com>`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      Buffer.from(emailBody).toString('base64')
-    ].join('\r\n');
-
-    const encoded = Buffer.from(message)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw: encoded }
+    await transporter.sendMail({
+      from: 'Bizzini Terrain <9bergil@gmail.com>',
+      to:      to,
+      subject: subject,
+      text:    emailBody
     });
 
     return {
