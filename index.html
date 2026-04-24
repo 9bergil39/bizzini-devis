@@ -1062,11 +1062,16 @@ function sendDossier(){
     ...photos.app.map(p=>({...p,cat:'Appareil'})),
   ];
   allPhotos.forEach((p,i)=>{
-    const parts = p.data.split(',');
-    const mime  = parts[0].match(/:(.*?);/)[1];
-    const b64   = parts[1];
-    const ext   = mime.split('/')[1]||'jpg';
-    attachments.push({name:`${p.cat}_${i+1}.${ext}`,type:mime,data:b64});
+    try {
+      const parts = p.data.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime  = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const b64   = parts[1] || parts[0];
+      const ext   = mime.split('/')[1]||'jpg';
+      attachments.push({name:`${p.cat}_${i+1}.${ext}`,type:mime,data:b64});
+    } catch(e) {
+      console.warn('Photo ignorée:', e);
+    }
   });
 
   const payload = {
