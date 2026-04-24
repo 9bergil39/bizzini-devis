@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Bizzini — Devis Terrain</title>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -980,8 +981,66 @@ function toggleAutres(cb){
   document.getElementById('autresReveal').style.display=cb.checked?'block':'none';
 }
 
-// ── ENVOI VIA GOOGLE APPS SCRIPT + DRIVE ─────────────────────
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbzh0U4pK5-afxzctglAoxdZTX_tssbcB4ic1agIhrgMai97L8Zy9vnaA5eXU3xrkaDT/exec';
+// ── ENVOI EMAILJS + LIEN DRIVE ────────────────────────────────
+const EMAILJS_PUBLIC_KEY  = 'MW9TSjc0OzFHYbSz3';
+const EMAILJS_SERVICE_ID  = 'service_jtzoi2w';
+const EMAILJS_TEMPLATE_ID = 'template_ntbwkyb';
+const DRIVE_FOLDER_URL    = 'https://drive.google.com/drive/folders/1fl6wrN4wNO2zCMtd1jIckExh9gUJltD_';
+
+function buildEmailBody(){
+  const d=curD;
+  const sym=[...document.querySelectorAll('#ts0 .pill-group input[type=checkbox]:checked')].map(c=>c.value).join(', ')||'—';
+  const fins=[...document.querySelectorAll('#fin1,#fin2,#fin3,#fin4')].filter(c=>c.checked).map(c=>c.value).join(', ')||'—';
+  const autresTxt=document.getElementById('fin4').checked?document.getElementById('autresTxt').value:'';
+  const larg=document.getElementById('mLarg').value;
+  const haut=document.getElementById('mHaut').value;
+  const prof=document.getElementById('mProf').value;
+  const nMarque=document.getElementById('nMarque').value;
+  const nModele=document.getElementById('nModele').value;
+  const nLibre=document.getElementById('nLibre').value;
+  const nPrix=document.getElementById('nPrix').value;
+  const totPh=photos.docs.length+photos.inst.length+photos.app.length;
+  return `DOSSIER BIZZINI — ${d.ref}${d.bonCmd?' / BC '+d.bonCmd:''}
+Date : ${fmtDate(d.date)} | Technicien : ${d.tech}
+
+── CLIENT ──────────────────────────
+Locataire : ${d.prenom} ${d.nom} | Tél : ${d.tel}
+Adresse : ${d.adresse}, ${d.npa} ${d.ville}${d.appt?' ('+d.appt+')':''}
+${d.gerance?'Gérance : '+d.gerance:''}${d.conc?'\nConcierge : '+d.conc:''}
+
+── APPAREIL EXISTANT ───────────────
+${d.categ} ${d.marque} ${d.modele} (${d.annee})
+Série : ${document.getElementById('tSerie').value||d.serie||'—'} | Prod : ${document.getElementById('tProd').value||d.prod||'—'}
+
+── CONSTAT ─────────────────────────
+Symptômes : ${sym}
+Description : ${document.getElementById('tDesc').value||'—'}
+Diagnostic : ${document.getElementById('tDiag').value||'—'}
+Usure : ${(document.querySelector('input[name=usure]:checked')||{}).value||'—'}
+
+── MESURES EMPLACEMENT ─────────────
+L ${larg||'—'} × H ${haut||'—'} × P ${prof||'—'} cm
+
+── NOUVEL APPAREIL PROPOSÉ ─────────
+${nMarque||nModele?(nMarque+' '+nModele).trim():'Non renseigné'}
+L ${document.getElementById('nLarg').value||'—'} × H ${document.getElementById('nHaut').value||'—'} × P ${document.getElementById('nProf').value||'—'} cm
+Prix indicatif : ${nPrix?'CHF '+parseFloat(nPrix).toFixed(2):'—'}
+${nLibre?'Notes : '+nLibre:''}
+
+── DEVIS ───────────────────────────
+${document.getElementById('tHT').textContent} HT | TVA 8.1% ${document.getElementById('tTVA').textContent} | Total TTC ${document.getElementById('tTTC').textContent}
+Suite : ${fins}${autresTxt?'\nAutres : '+autresTxt:''}
+${document.getElementById('tRem').value?'Remarques : '+document.getElementById('tRem').value:''}
+
+── SIGNATURE ───────────────────────
+Signataire : ${document.getElementById('sigNom').value||'—'} | Date : ${document.getElementById('sigDate').value||'—'}
+Clé remise à : ${document.getElementById('cleRemise').value||'—'}
+
+── PHOTOS (${totPh} prise${totPh>1?'s':''}) ──────────────────
+${totPh>0?'Le technicien a pris '+totPh+' photo(s) — dossier: '+photos.docs.length+' / installation: '+photos.inst.length+' / appareil: '+photos.app.length:'Aucune photo prise'}
+A déposer dans Google Drive (dossier Bizzini Devis) :
+${DRIVE_FOLDER_URL}`.trim();
+}
 
 function sendDossier(){
   const emailDest = document.getElementById('emailDest').value.trim();
@@ -990,57 +1049,32 @@ function sendDossier(){
   const btn = document.getElementById('btnNext');
   btn.textContent = '⏳ Envoi en cours…';
   btn.disabled = true;
-  toast('Upload des photos et envoi…');
+  toast('Envoi en cours…');
 
-  // Prépare les photos en base64
-  const attachments = [];
-  const allPhotos = [
-    ...photos.docs.map(p=>({...p,cat:'Dossier'})),
-    ...photos.inst.map(p=>({...p,cat:'Installation'})),
-    ...photos.app.map(p=>({...p,cat:'Appareil'})),
-  ];
-  allPhotos.forEach((p,i)=>{
-    const parts = p.data.split(',');
-    const mime  = parts[0].match(/:(.*?);/)[1];
-    const b64   = parts[1];
-    const ext   = mime.split('/')[1]||'jpg';
-    attachments.push({name:`${p.cat}_${i+1}.${ext}`,type:mime,data:b64});
+  emailjs.init({publicKey: EMAILJS_PUBLIC_KEY});
+
+  const sendPromise = emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+    to_email: emailDest,
+    subject:  `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
+    message:  buildEmailBody(),
   });
 
-  const payload = {
-    to:          emailDest,
-    subject:     `Dossier ${curD.ref} — ${curD.prenom} ${curD.nom} — ${curD.tech}`,
-    body:        buildEmailBody(),
-    ref:         curD.ref,
-    client:      `${curD.prenom} ${curD.nom}`,
-    attachments: attachments
-  };
+  const timeoutPromise = new Promise((_,reject) =>
+    setTimeout(()=>reject({status:'timeout',text:'Pas de réponse après 15 secondes'}),15000)
+  );
 
-  // XMLHttpRequest gère mieux les redirections GAS que fetch
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', GAS_URL, true);
-  xhr.setRequestHeader('Content-Type', 'text/plain');
-
-  xhr.onload = function() {
-    if(curD) curD.status = 'complété';
+  Promise.race([sendPromise, timeoutPromise])
+  .then(()=>{
+    if(curD) curD.status='complété';
     showSuccess();
-  };
-
-  xhr.onerror = function() {
-    // GAS redirige souvent → onload se déclenche quand même
-    // Si on arrive ici c'est une vraie erreur réseau
-    if(curD) curD.status = 'complété';
-    showSuccess();
-  };
-
-  xhr.ontimeout = function() {
+  })
+  .catch(err=>{
     btn.textContent = '📤 Transmettre le dossier';
     btn.disabled = false;
-    toast('Délai dépassé — réessayez');
-  };
-
-  xhr.timeout = 30000;
-  xhr.send(JSON.stringify(payload));
+    const detail = err.status?`[${err.status}] ${err.text}`:(err.message||JSON.stringify(err));
+    toast('Erreur : '+detail);
+    console.error('EmailJS error:',err);
+  });
 }
 
 function showSuccess(){
